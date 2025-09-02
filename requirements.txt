@@ -1,0 +1,10 @@
+aiogram==3.10.0
+pydantic==2.8.2
+
+aiohttp==3.9.5
+
+SQLAlchemy
+asyncpg
+alembic
+redis
+cachetools
