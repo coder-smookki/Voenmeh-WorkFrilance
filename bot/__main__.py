@@ -5,12 +5,12 @@ from aiogram import Bot, Dispatcher
 from bot.settings import TOKEN
 from bot.handlers import menu_router
 from bot.handlers import main_menu
+from bot.handlers import suggestion_user_router
 
 
 def include_routers(dp: Dispatcher) -> None:
     dp.include_router(menu_router)
-
-
+    dp.include_router(suggestion_user_router)
 
 def create_bot(token) -> Bot:
     return Bot(token=token)
