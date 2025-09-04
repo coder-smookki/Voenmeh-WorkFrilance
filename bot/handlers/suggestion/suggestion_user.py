@@ -30,32 +30,34 @@ async def read_submission_text(callback: CallbackQuery, state: FSMContext):
     
 @suggestion_user_router.message(SubmissionStates.waiting_text)
 async def text_message_analysis(message: Message, state: FSMContext):
-    print(f"🔍 DEBUG: Получено сообщение: {repr(message.text)}")
     
     await state.update_data({'temp_text_input': message.text})
     
     if not message.text:
-        print("🔍 DEBUG: Сообщение пустое")
-        await message.answer(text=TEXT_ANALYSIS_ERROR, parse_mode='HTML')
+        await message.answer(
+            text = TEXT_ANALYSIS_ERROR,
+            parse_mode = 'HTML'
+        )
         return
     
     lines = [line.strip() for line in message.text.split('\n') if line.strip()]
-    print(f"🔍 DEBUG: Получено строк: {len(lines)} - {lines}")
     
     if len(lines) < 4:
-        print("🔍 DEBUG: Строк меньше 4")
-        await message.answer(text=INCORRECT_TEXT_FORMAT, parse_mode='HTML')
-        return 
-    
-    subject, course, teacher, work_name = lines[0], lines[1], lines[2], lines[3]
-    print(f"🔍 DEBUG: Распаршено: {subject}, {course}, {teacher}, {work_name}")
-    
-    if not all([subject, course, work_name]):
-        print("🔍 DEBUG: Важные поля пустые")
-        await message.answer(text=EMPTY_FIELDS, parse_mode='HTML')
+        await message.answer(
+            text = INCORRECT_TEXT_FORMAT,
+            parse_mode = 'HTML'
+        )
         return
     
-    print("🔍 DEBUG: Всё ок, идём дальше...")
+    return
+    subject, course, teacher, work_name = lines[0], lines[1], lines[2], lines[3]
+    
+    if not all([subject, course, work_name]):
+        await message.answer(
+            text = EMPTY_FIELDS,
+            parse_mode = 'HTML'
+        )
+        return
     
     submission_id = str(uuid.uuid4())
     user = message.from_user
