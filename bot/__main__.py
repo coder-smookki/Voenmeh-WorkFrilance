@@ -6,11 +6,15 @@ from bot.settings import TOKEN
 from bot.handlers import menu_router
 from bot.handlers import main_menu
 from bot.handlers import suggestion_user_router
+from bot.handlers import moderation_router
+from bot.handlers.help import help_router
 
 
 def include_routers(dp: Dispatcher) -> None:
     dp.include_router(menu_router)
     dp.include_router(suggestion_user_router)
+    dp.include_router(moderation_router)
+    dp.include_router(help_router)
 
 def create_bot(token) -> Bot:
     return Bot(token=token)
