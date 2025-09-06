@@ -35,7 +35,6 @@ async def accept_submission(callback: CallbackQuery, bot: Bot):
                 f"<b>От:</b> {data['first_name']} (@{data['username']})\n"
                 f"<b>Предмет:</b> {data['subject']}\n"
                 f"<b>Курс:</b> {data['course']}\n"
-                f"<b>Преподаватель:</b> {data['teacher']}\n"
                 f"<b>Работа:</b> {data['work_name']}\n\n"
                 f"<i>Работа принята модератором @{callback.from_user.username}</i>"
             )
@@ -50,7 +49,6 @@ async def accept_submission(callback: CallbackQuery, bot: Bot):
                 f"<b>От:</b> {data['first_name']} (@{data['username']})\n"
                 f"<b>Предмет:</b> {data['subject']}\n"
                 f"<b>Курс:</b> {data['course']}\n"
-                f"<b>Преподаватель:</b> {data['teacher']}\n"
                 f"<b>Работа:</b> {data['work_name']}\n\n"
                 f"<i>Работа принята модератором @{callback.from_user.username}</i>"
             )

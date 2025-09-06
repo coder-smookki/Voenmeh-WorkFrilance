@@ -8,7 +8,7 @@ from bot.keyboards.back_to_menu import get_back_to_menu_keyboard
 from bot.handlers.states import SubmissionStates, submission_data
 import uuid
 from html import escape
-from bot.keyboards.add_file import get_files_keyboard, get_done_keyboard
+from bot.keyboards.add_file import get_suggestion_files_keyboard, get_suggestion_done_keyboard
 from bot.keyboards.submission_preview import get_submission_preview_keyboard
 from bot.keyboards.repeal import get_cancel_keyboard
 from bot.settings import MODERATOR_CHAT_ID
@@ -18,7 +18,9 @@ suggestion_user_router = Router(name='suggestion_user_router')
     
 @suggestion_user_router.callback_query(F.data == 'suggestion')
 async def read_submission_text(callback: CallbackQuery, state: FSMContext):
+    
     await callback.answer()
+    await state.update_data({'old_files': []})
     await state.set_state(SubmissionStates.waiting_text)
     
     await callback.message.edit_text(        
@@ -28,7 +30,7 @@ async def read_submission_text(callback: CallbackQuery, state: FSMContext):
     )
     
 @suggestion_user_router.message(SubmissionStates.waiting_text)
-async def text_message_analysis(message: Message, state: FSMContext):
+async def text_message_analysis_suggestion(message: Message, state: FSMContext):
     
     data = await state.get_data()
     old_files = data.get('old_files', [])  
@@ -44,13 +46,13 @@ async def text_message_analysis(message: Message, state: FSMContext):
     
     lines = [line.strip() for line in message.text.split('\n') if line.strip()]
     
-    if len(lines) < 4:
+    if len(lines) < 3:
         await message.answer(
             text = INCORRECT_TEXT_FORMAT,
             parse_mode = 'HTML'
         )
         return
-    subject, course, teacher, work_name = lines[0], lines[1], lines[2], lines[3]
+    subject, course, work_name = lines[0], lines[1], lines[2]
     
     if not all([subject, course, work_name]):
         await message.answer(
@@ -72,7 +74,6 @@ async def text_message_analysis(message: Message, state: FSMContext):
         'first_name': user.first_name or 'Аноним',
         'subject': subject,
         'course': course,
-        'teacher': teacher, 
         'work_name': work_name,
     }
     
@@ -85,10 +86,9 @@ async def text_message_analysis(message: Message, state: FSMContext):
     preview_text = (
         '✅ <b>Принял!</b> Проверь информацию:\n\n'
         f'<b>Предмет:</b> <code>{escape(subject)}</code>\n'
-        f'<b>Курс:</b> <code>{escape(course)}</code>\n'
-        f'<b>Преподаватель:</b> <code>{escape(teacher)}</code>\n' 
+        f'<b>Курс:</b> <code>{escape(course)}</code>\n' 
         f'<b>Работа:</b> <code>{escape(work_name)}</code>\n\n'
-        '📎 <b>Теперь прикрепи файлы работы</b>\n'
+        '📎 <b>Теперь прикрепи дополнительные файлы к работе</b>\n'
         '• Документы, фото, архивы\n'
         '• Можно несколько файлов(Но максимум -- 10)\n'
         '• Когда всё отправишь — нажми "✅Готово"'
@@ -97,7 +97,7 @@ async def text_message_analysis(message: Message, state: FSMContext):
     await message.answer(
         text = preview_text,
         parse_mode='HTML',
-        reply_markup = get_files_keyboard(submission_id)
+        reply_markup = get_suggestion_files_keyboard(submission_id)
     )
     
     await state.set_state(SubmissionStates.waiting_files)
@@ -120,7 +120,6 @@ async def confirm_submission(callback: CallbackQuery, state: FSMContext, bot: Bo
             f"<b>ID:</b> {submission_info['user_id']}\n\n"
             f"<b>Предмет:</b> {submission_info['subject']}\n"
             f"<b>Курс:</b> {submission_info['course']}\n"
-            f"<b>Преподаватель:</b> {submission_info['teacher']}\n"
             f"<b>Работа:</b> {submission_info['work_name']}\n\n"
             f"Проверь и прими решение:"
         )
@@ -199,7 +198,7 @@ async def confirm_submission(callback: CallbackQuery, state: FSMContext, bot: Bo
             reply_markup=get_back_to_menu_keyboard()
         )
 
-@suggestion_user_router.callback_query(F.data == "edit_description")
+@suggestion_user_router.callback_query(F.data == "edit_sub_description")
 async def edit_submission_text_handler(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     submission_id = data.get('submission_id') 
@@ -257,7 +256,7 @@ async def add_more_submission_files(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer(
         text = ADD_FILES,
         parse_mode='HTML',
-        reply_markup=get_files_keyboard(submission_id)
+        reply_markup=get_suggestion_files_keyboard(submission_id)
     )
     await state.set_state(SubmissionStates.waiting_files)
     await callback.answer()
@@ -361,7 +360,7 @@ async def process_submission_files(message: Message, state: FSMContext):
     await message.answer(
         text = text_done,
         parse_mode = 'HTML',
-        reply_markup = get_done_keyboard(submission_id)
+        reply_markup = get_suggestion_done_keyboard(submission_id)
         
     )
     
@@ -414,14 +413,12 @@ async def show_submission_preview(
     
     subject = escape(submission_info.get('subject', 'Не указано'))
     course = escape(submission_info.get('course', 'Не указано'))
-    teacher = escape(submission_info.get('teacher', 'Не указано'))
     work_name = escape(submission_info.get('work_name', 'Не указано'))
 
     response_text = (
         f'{title}\n\n'
         f'<b>Предмет:</b> <code>{subject}</code>\n'
         f'<b>Курс:</b> <code>{course}</code>\n'
-        f'<b>Преподаватель:</b> <code>{teacher}</code>\n'
         f'<b>Работа:</b> <code>{work_name}</code>\n\n'
     )
 
