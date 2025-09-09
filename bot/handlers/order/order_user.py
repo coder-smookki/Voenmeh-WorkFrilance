@@ -1,25 +1,34 @@
 from aiogram import Router, F, Bot
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, Message
+from aiogram.types import CallbackQuery, Message, InputMediaVideo, InputMediaPhoto
 from bot.utils.consts import (START_ORDER, TEXT_ANALYSIS_ERROR, ERROR_TRY_AGAIN, 
                               MAXIMUM_FILES, ADD_FILES, CANCELING_A_SHIPMENT,
-                              SUBMITTED_TO_MODERATION)
-from bot.keyboards.back_to_menu import get_back_to_menu_keyboard
-from bot.handlers.states import OrderStates, order_data
+                              SUBMITTED_TO_MODERATION, SUBMITTED_TO_EXECUTOR, 
+                              get_executor_text, get_text_done, get_edit_order_text, get_preview_text)
+from bot.keyboards.go_to_menu import get_back_to_menu_keyboard
+from bot.utils.states import OrderStates, order_data, order_upload_manager
 import uuid
 from html import escape
 from bot.keyboards.add_file import get_order_files_keyboard, get_order_done_keyboard
-from bot.keyboards.order_preview import get_order_preview_keyboard
-from bot.keyboards.repeal import get_cancel_keyboard
+from bot.keyboards.order_preview import get_order_preview_keyboard, get_cancel_current_action, get_executor_keyboard
 from bot.settings import ORDER_CHAT_ID
 import logging
+import asyncio
 
-order_user_router = Router(name='order_user_router')
+order_user_router = Router(name = 'order_user_router')
 
 @order_user_router.callback_query(F.data == 'create_order')
 async def read_order_text(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
-    await state.update_data({'old_files': []})
+    
+    async with order_upload_manager.lock:
+        order_upload_manager.pending_uploads.clear()
+        order_upload_manager.next_expected = 1
+    
+    await state.update_data({
+        'old_files': [],
+        'file_counter': 0
+    })
     await state.set_state(OrderStates.waiting_text)
     
     await callback.message.edit_text(        
@@ -59,104 +68,127 @@ async def text_message_analysis_order(message: Message, state: FSMContext):
         'order_id': order_id
     })
     
-    preview_text = ( 
-        '✅<b>Описание принято!</b>\n'
-        'Проверяй своё описание!\n'
-        f'{escape(message.text)}\n\n'
-        '📎 <b>Теперь прикрепи дополнительыне файлы, для большей точности!</b>\n'
-        '• Документы, фото, архивы\n'
-        '• Можно несколько файлов(Но максимум -- 10)\n'
-        '• Когда всё отправишь — нажми "✅Готово"'
-    )
+    preview_text = get_preview_text(message)
     
     await message.answer(
-        text=preview_text,
-        parse_mode='HTML',
-        reply_markup=get_order_files_keyboard(order_id)
+        text = preview_text,
+        parse_mode = 'HTML',
+        reply_markup = get_order_files_keyboard(order_id)
     )
     
     await state.set_state(OrderStates.waiting_files)
 
-# Добавляем обработчик подтверждения заказа для отправки модератору
 @order_user_router.callback_query(OrderStates.waiting_confirmation, F.data == "confirm_order")
 async def confirm_order(callback: CallbackQuery, state: FSMContext, bot: Bot):
     try:
         data = await state.get_data()
         order_id = data['order_id']
+        file_counter = data.get('file_counter', 0)
         order_info = order_data.get(order_id)
 
         if not order_info:
-            await callback.answer("Данные заказа не найдены!")
+            await callback.answer("Данные отправки не найдены!")
             return
 
-        moderator_text = (
-            f"🛒 <b>НОВЫЙ ЗАКАЗ</b>\n\n"
-            f"<b>От:</b> {order_info['first_name']} (@{order_info['username']})\n"
-            f"<b>ID:</b> {order_info['user_id']}\n\n"
-            f"<b>Описание заказа:</b>\n{order_info['text']}\n\n"
-            f"Проверь и прими решение:"
-        )
+        success = await order_upload_manager.wait_for_order(file_counter + 1, timeout=5.0)
+        
+        if not success:
+            logging.warning(f"Timeout waiting for file processing for order {order_id}")
 
-        moderator_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="✅ Принять заказ", callback_data=f"accept_order_{order_id}")],
-            [InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject_order_{order_id}")]
-        ])
+        async with order_upload_manager.lock:
+            order_upload_manager.pending_uploads.clear()
+            order_upload_manager.next_expected = 1
+            remaining_files = await order_upload_manager._check_sequential_uploads()
+            for msg_data in remaining_files:
+                await callback.message.answer(
+                    text=msg_data['text'],
+                    parse_mode='HTML'
+                )
+            await asyncio.sleep(0.1)  
 
+        moderator_text = get_executor_text(order_info)
         files = order_info.get('files', [])
+        sorted_files = sorted(files, key=lambda x: x.get('order', 0))
 
-        if files:
-            first_file = files[0]
-            first_file_type = first_file['type']
-            first_file_id = first_file['id']
+        description_message = await bot.send_message(
+            chat_id=ORDER_CHAT_ID,
+            text=moderator_text,
+            parse_mode='HTML',
+            reply_markup=get_executor_keyboard(order_id)
+        )
+        message_to_reply_to = description_message.message_id
 
-            if first_file_type == 'document':
-                message = await bot.send_document(
-                    chat_id=ORDER_CHAT_ID,
-                    document=first_file_id,
-                    caption=moderator_text,
-                    parse_mode='HTML',
-                    reply_markup=moderator_keyboard
-                )
+        media_group_files = []
+        single_files = []
+
+        for file_info in sorted_files:
+            if file_info['type'] in ['photo', 'video']:
+                media_group_files.append(file_info)
             else:
-                message = await bot.send_photo(
+                single_files.append(file_info)
+
+        if media_group_files:
+            try:
+                media_group = []
+                for i, file_info in enumerate(media_group_files, 1):
+                    if file_info['type'] == 'photo':
+                        media_group.append(InputMediaPhoto(
+                            media=file_info['id'],
+                            caption=f"🖼️ Изображение {i} к заказу"
+                        ))
+                    elif file_info['type'] == 'video':
+                        media_group.append(InputMediaVideo(
+                            media=file_info['id'],
+                            caption=f"🎥 Видео {i} к заказу"
+                        ))
+                
+                await bot.send_media_group(
                     chat_id=ORDER_CHAT_ID,
-                    photo=first_file_id,
-                    caption=moderator_text,
-                    parse_mode='HTML',
-                    reply_markup=moderator_keyboard
+                    media=media_group,
+                    reply_to_message_id=message_to_reply_to
                 )
+            except Exception as e:
+                logging.error(f"Error sending media group: {e}")
+                for i, file_info in enumerate(media_group_files, 1):
+                    try:
+                        if file_info['type'] == 'photo':
+                            await bot.send_photo(
+                                chat_id=ORDER_CHAT_ID,
+                                photo=file_info['id'],
+                                caption=f"🖼️ Изображение {i} к заказу",
+                                reply_to_message_id=message_to_reply_to
+                            )
+                        elif file_info['type'] == 'video':
+                            await bot.send_video(
+                                chat_id=ORDER_CHAT_ID,
+                                video=file_info['id'],
+                                caption=f"🎥 Видео {i} к заказу",
+                                reply_to_message_id=message_to_reply_to
+                            )
+                    except Exception as e:
+                        logging.error(f"Error sending media file: {e}")
 
-            for i, file_info in enumerate(files[1:], 2):
-                file_type = file_info['type']
-                file_id = file_info['id']
-                try:
-                    if file_type == 'document':
-                        await bot.send_document(
-                            chat_id=ORDER_CHAT_ID,
-                            document=file_id,
-                            caption=f"📄 Файл {i} к заказу",
-                            reply_to_message_id=message.message_id
-                        )
-                    else:
-                        await bot.send_photo(
-                            chat_id=ORDER_CHAT_ID,
-                            photo=file_id,
-                            caption=f"🖼️ Изображение {i} к заказу",
-                            reply_to_message_id=message.message_id
-                        )
-                except Exception as e:
-                    logging.error(f"Error sending additional file: {e}")
-
-        else:
-            message = await bot.send_message(
-                chat_id=ORDER_CHAT_ID,
-                text=moderator_text,
-                parse_mode='HTML',
-                reply_markup=moderator_keyboard 
-            )
+        for i, file_info in enumerate(single_files, 1):
+            try:
+                if file_info['type'] == 'document':
+                    await bot.send_document(
+                        chat_id=ORDER_CHAT_ID,
+                        document=file_info['id'],
+                        caption=f"📄 Документ {i} к заказу",
+                        reply_to_message_id=message_to_reply_to
+                    )
+                elif file_info['type'] == 'audio':
+                    await bot.send_audio(
+                        chat_id=ORDER_CHAT_ID,
+                        audio=file_info['id'],
+                        caption=f"🎵 Аудио {i} к заказу",
+                        reply_to_message_id=message_to_reply_to
+                    )
+            except Exception as e:
+                logging.error(f"Error sending single file: {e}")
 
         await callback.message.edit_text(
-            text=SUBMITTED_TO_MODERATION,
+            text=SUBMITTED_TO_EXECUTOR,
             parse_mode='HTML',
             reply_markup=get_back_to_menu_keyboard()
         )
@@ -181,11 +213,9 @@ async def edit_order_text_handler(callback: CallbackQuery, state: FSMContext):
         old_files = order_data[order_id].get('files', [])
     
     await callback.message.answer(
-        "✏️ <b>Редактирование описания</b>\n\n"
-        f"Текущий текст:\n<code>{escape(old_text)}</code>\n\n"
-        "Пришли новый текст:",
-        parse_mode='HTML',
-        reply_markup=get_cancel_keyboard()
+        text = get_edit_order_text(old_text),
+        parse_mode = 'HTML',
+        reply_markup = get_cancel_current_action()
     )
     
     await state.update_data({'old_files': old_files})
@@ -201,10 +231,10 @@ async def more_files_done_handler(callback: CallbackQuery, state: FSMContext):
         callback.message,
         order_id,
         state,
-        "📝 <b>Заказ обновлен:</b>"
+        '📝 <b>Заказ обновлен:</b>'
     )
     await state.set_state(OrderStates.waiting_confirmation)
-    await callback.answer("✅ Дополнительные файлы добавлены!")
+    await callback.answer('✅ Дополнительные файлы добавлены!')
 
 @order_user_router.callback_query(F.data == "cancel_more_files")
 async def cancel_more_files_handler(callback: CallbackQuery, state: FSMContext):
@@ -215,10 +245,10 @@ async def cancel_more_files_handler(callback: CallbackQuery, state: FSMContext):
         callback.message,
         order_id,
         state,
-        "📝 <b>Возврат к редактированию:</b>"
+        '📝 <b>Возврат к редактированию:</b>'
     )
     await state.set_state(OrderStates.waiting_confirmation)
-    await callback.answer("❌ Добавление файлов отменено")
+    await callback.answer('❌ Добавление файлов отменено')
 
 @order_user_router.callback_query(OrderStates.waiting_confirmation, F.data == "add_more_files")
 async def add_more_order_files(callback: CallbackQuery, state: FSMContext):
@@ -240,6 +270,10 @@ async def cancel_order(callback: CallbackQuery, state: FSMContext):
     if order_id and order_id in order_data:
         del order_data[order_id]
     
+    async with order_upload_manager.lock:
+        order_upload_manager.pending_uploads.clear()
+        order_upload_manager.next_expected = 1
+    
     await state.clear()
     await callback.message.edit_text(
         text = CANCELING_A_SHIPMENT,
@@ -248,7 +282,7 @@ async def cancel_order(callback: CallbackQuery, state: FSMContext):
     )
     await callback.answer()
 
-@order_user_router.callback_query(F.data == "cancel_current_action")
+@order_user_router.callback_query(F.data == 'cancel_order_editing')
 async def cancel_current_action_handler(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     order_id = data.get('order_id')
@@ -257,28 +291,12 @@ async def cancel_current_action_handler(callback: CallbackQuery, state: FSMConte
         callback.message,
         order_id,
         state,
-        "📝 <b>Редактирование отменено:</b>"
+        '📝 <b>Редактирование отменено:</b>'
     )
     await state.set_state(OrderStates.waiting_confirmation)
-    await callback.answer("✏️ Редактирование отменено")
+    await callback.answer('✏️ Редактирование отменено')
 
-@order_user_router.callback_query(F.data == "go_to_menu")
-async def go_to_menu_handler(callback: CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    order_id = data.get('order_id')
-    
-    if order_id and order_id in order_data:
-        del order_data[order_id]
-    
-    await state.clear()
-    await callback.message.edit_text(
-        "❌ <b>Отправка отменена</b>\n\nВозврат в главное меню...",
-        parse_mode='HTML',
-        reply_markup=get_back_to_menu_keyboard()
-    )
-    await callback.answer()
-
-@order_user_router.message(OrderStates.waiting_files, F.document | F.photo)  
+@order_user_router.message(OrderStates.waiting_files, F.document | F.photo | F.audio | F.video)  
 async def process_order_files(message: Message, state: FSMContext):
     data = await state.get_data()
     order_id = data.get('order_id')
@@ -300,38 +318,60 @@ async def process_order_files(message: Message, state: FSMContext):
 
     file_type = None
     file_id = None
+    file_name = 'Файл'
 
     if message.document:
         file_type = 'document'
         file_id = message.document.file_id
-        file_name = message.document.file_name or 'Без названия'
+        file_name = message.document.file_name or 'Документ'
     elif message.photo:
         file_type = 'photo' 
         file_id = message.photo[-1].file_id 
         file_name = 'Изображение'
-        
-    files.append({
+    elif message.audio:
+        file_type = 'audio'
+        file_id = message.audio.file_id
+        file_name = message.audio.file_name or 'Аудио'
+    elif message.video:
+        file_type = 'video'
+        file_id = message.video.file_id
+        file_name = message.video.file_name or 'Видео'
+    
+    current_counter = data.get('file_counter', 0) + 1
+    await state.update_data({'file_counter': current_counter})
+
+    new_file = {
         'type': file_type,
         'id': file_id,
         'name': file_name,
-    })
-
+        'order': current_counter
+    }
+    files.append(new_file)
     order_data[order_id]['files'] = files
-
-    file_count = len(files)
-    file_word = 'файлов' if file_count % 10 not in [2, 3, 4] or file_count % 100 in [12, 13, 14] else 'файла'  
+    expected_order = current_counter
     
-    text_done = (
-        f'✅ <b>Добавлено!</b>\n'
-        f'📦 <b>Файл:</b> <code>{escape(file_name)}</code>\n'
-        f'📊 <b>Всего:</b> {file_count} {file_word}\n\n'
-        f'Можно отправить ещё или нажать <b>"✅Готово "</b>' )
+    timeout = 10.0  
+    start_time = asyncio.get_event_loop().time()
+    
+    while asyncio.get_event_loop().time() - start_time < timeout:
+        async with order_upload_manager.lock:
+            if order_upload_manager.next_expected >= expected_order:
+                break
+        await asyncio.sleep(0.1)
     
     await message.answer(
-        text = text_done,
-        parse_mode = 'HTML',
-        reply_markup = get_order_done_keyboard(order_id)
+        text=get_text_done(file_name, current_counter, len(files)),
+        parse_mode='HTML',
+        reply_markup=get_order_done_keyboard(order_id)
     )
+    
+    message_data = {
+        'chat_id': message.chat.id,
+        'text': get_text_done(file_name, current_counter, len(files)),
+        'order': current_counter
+    }
+    
+    await order_upload_manager.add_upload(current_counter, message_data)
     
 @order_user_router.callback_query(F.data.startswith('order_done:'))  # Для кнопки 'Готово'
 @order_user_router.callback_query(F.data.startswith('order_nofiles:'))  # Для кнопки 'Без файлов'
@@ -351,9 +391,12 @@ async def handle_order_finalize(callback: CallbackQuery, state: FSMContext):
         return
 
     if callback.data.startswith('order_nofiles:'):
+        order_data[order_id]['files'] = []
         order_data[order_id]['no_files'] = True
+        await state.update_data({'file_counter': 0})
         await callback.answer('✅ Принято: заказ без файлов')
     else:
+        order_data[order_id]['no_files'] = False
         await callback.answer('✅ Файлы добавлены!')
 
     await show_order_preview(
@@ -386,17 +429,40 @@ async def show_order_preview(
         f'{order_text}\n\n'
     )
 
+    no_files = order_info.get('no_files', False)
     files = order_info.get('files', [])
-    if files:
-        file_count = len(files)
-        doc_count = sum(1 for f in files if f.get('type') == 'document')
-        photo_count = sum(1 for f in files if f.get('type') == 'photo')
+    
+    sorted_files = sorted(files, key=lambda x: x.get('order', 0))
+    
+    if no_files:
+        response_text += '📎 <b>Файлы:</b> заказ отправлен без файлов\n'
+    elif sorted_files:
+        file_count = len(sorted_files)
+        doc_count = sum(1 for f in sorted_files if f.get('type') == 'document')
+        photo_count = sum(1 for f in sorted_files if f.get('type') == 'photo')
+        audio_count = sum(1 for f in sorted_files if f.get('type') == 'audio')
+        video_count = sum(1 for f in sorted_files if f.get('type') == 'video')
         
         response_text += f'📎 <b>Прикреплено файлов:</b> {file_count}\n'
         if doc_count > 0:
             response_text += f'   • Документов: {doc_count}\n'
         if photo_count > 0:
             response_text += f'   • Изображений: {photo_count}\n'
+        if audio_count > 0:
+            response_text += f'   • Аудиофайлов: {audio_count}\n'
+        if video_count > 0:
+            response_text += f'   • Видеофайлов: {video_count}\n'
+        
+        response_text += '\n<b>Порядок файлов:</b>\n'
+        for i, file_info in enumerate(sorted_files, 1):
+            file_type_emoji = {
+                'document': '📄',
+                'photo': '🖼️',
+                'audio': '🎵',
+                'video': '🎥'
+            }.get(file_info['type'], '📎')
+            
+            response_text += f'   {i}. {file_type_emoji} {file_info["name"]}\n'
     else:
         response_text += '📎 <b>Файлы:</b> не прикреплены\n'
 

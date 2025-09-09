@@ -14,3 +14,4 @@ async def start_command(message: Message):
         parse_mode = 'HTML',
         reply_markup = get_start_keyboard()
     )
+    

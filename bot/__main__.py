@@ -9,6 +9,8 @@ from bot.handlers import suggestion_user_router
 from bot.handlers import moderation_router
 from bot.handlers.help import help_router
 from bot.handlers.order.order_user import order_user_router
+from bot.handlers.go_to_menu_command import go_to_menu_router
+from bot.handlers.order.order_executor import order_executor_router
 
 
 def include_routers(dp: Dispatcher) -> None:
@@ -17,6 +19,9 @@ def include_routers(dp: Dispatcher) -> None:
     dp.include_router(moderation_router)
     dp.include_router(help_router)
     dp.include_router(order_user_router)
+    dp.include_router(go_to_menu_router)
+    dp.include_router(order_executor_router)
+    
 
 def create_bot(token) -> Bot:
     return Bot(token=token)

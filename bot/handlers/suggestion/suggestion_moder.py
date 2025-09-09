@@ -2,9 +2,9 @@ import logging
 from aiogram import Router, F, Bot
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.exceptions import TelegramBadRequest
-from bot.utils.consts import GOOD_NEWS, BAD_NEWS
-from bot.keyboards.back_to_menu import get_back_to_menu_keyboard
-from bot.handlers.states import submission_data
+from bot.utils.consts import GOOD_NEWS, BAD_NEWS, get_accept_work
+from bot.keyboards.go_to_menu import get_back_to_menu_keyboard
+from bot.utils.states import submission_data
 
 moderation_router = Router(name='moderation_router')
 
@@ -30,28 +30,15 @@ async def accept_submission(callback: CallbackQuery, bot: Bot):
             logging.warning(f"User {data['user_id']} blocked the bot")
 
         try:
-            new_caption = (
-                f"✅ <b>ПРИНЯТАЯ РАБОТА</b>\n\n"
-                f"<b>От:</b> {data['first_name']} (@{data['username']})\n"
-                f"<b>Предмет:</b> {data['subject']}\n"
-                f"<b>Курс:</b> {data['course']}\n"
-                f"<b>Работа:</b> {data['work_name']}\n\n"
-                f"<i>Работа принята модератором @{callback.from_user.username}</i>"
-            )
+            new_caption = get_accept_work(data, callback)
+
 
             await callback.message.edit_caption(
                 caption=new_caption,
                 parse_mode='HTML'
             )
         except TelegramBadRequest:
-            new_text = (
-                f"✅ <b>ПРИНЯТАЯ РАБОТА</b>\n\n"
-                f"<b>От:</b> {data['first_name']} (@{data['username']})\n"
-                f"<b>Предмет:</b> {data['subject']}\n"
-                f"<b>Курс:</b> {data['course']}\n"
-                f"<b>Работа:</b> {data['work_name']}\n\n"
-                f"<i>Работа принята модератором @{callback.from_user.username}</i>"
-            )
+            new_text = get_accept_work(data, callback)
 
             await callback.message.edit_text(
                 text=new_text,
