@@ -1,16 +1,23 @@
 import asyncio
 
 from aiogram import Bot, Dispatcher
+from aiogram.fsm.storage.redis import RedisStorage
 
-from bot.settings import TOKEN
-from bot.handlers import menu_router
-from bot.handlers import main_menu
-from bot.handlers import suggestion_user_router
-from bot.handlers import moderation_router
+from bot.settings import get_settings
+from bot.handlers import menu_router, suggestion_user_router, moderation_router
 from bot.handlers.help import help_router
 from bot.handlers.order.order_user import order_user_router
 from bot.handlers.go_to_menu_command import go_to_menu_router
 from bot.handlers.order.order_executor import order_executor_router
+from bot.middlewares import (
+    AuthMiddleware, 
+    UserContextMiddleware, 
+    DBSessionMiddleware, 
+    LoggingMiddleware
+)
+from database.session import init_session
+from database.settings import get_db_settings
+from bot.utils.logging import setup_logger
 
 
 def include_routers(dp: Dispatcher) -> None:
@@ -21,6 +28,14 @@ def include_routers(dp: Dispatcher) -> None:
     dp.include_router(order_user_router)
     dp.include_router(go_to_menu_router)
     dp.include_router(order_executor_router)
+
+def include_middlewares(dp: Dispatcher, session_maker, bot_logger) -> None:
+    dp.update.outer_middleware(LoggingMiddleware(logger=bot_logger))
+    dp.update.outer_middleware(DBSessionMiddleware(session_maker))
+    dp.update.outer_middleware(UserContextMiddleware())
+    dp.message.middleware(AuthMiddleware(["auth"]))
+    dp.callback_query.middleware(AuthMiddleware(["auth"]))
+
     
 
 def create_bot(token) -> Bot:
@@ -28,11 +43,22 @@ def create_bot(token) -> Bot:
 
 
 async def main():
-    
-    bot = create_bot(TOKEN)
-    dp = Dispatcher()
+    bot_logger = setup_logger()
+
+    settings = get_settings()
+    db_settings = get_db_settings()
+
+
+    session_maker = await init_session(db_settings)
+
+
+    storage = RedisStorage.from_url(settings.redis_settings.redis_url)
+
+    bot = create_bot(settings.bot_settings.token)
+    dp = Dispatcher(storage=storage)
 
     include_routers(dp)
+    include_middlewares(dp, session_maker, bot_logger)
 
     await dp.start_polling(bot, allowed_updates=["message", "callback_query"])
 

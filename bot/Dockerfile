@@ -16,9 +16,9 @@ RUN pip install -U pip && \
   pip install -r /tmp/requirements.txt 
 
 COPY ./bot ./src/bot
-# COPY ./database ./src/database
-# COPY ./migrations ./src/migrations
-# COPY ./alembic.ini ./src/
+COPY ./database ./src/database
+COPY ./migrations ./src/migrations
+COPY ./alembic.ini ./src/
 
 
 WORKDIR /src

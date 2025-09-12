@@ -1,13 +1,58 @@
 version: "3.9" 
 services:
   bot:
-    container_name: VoenmehWorkFrilance.bot
+    container_name: VoenmehFrilance.bot
     build:
       context: ./
       dockerfile: ./bot/Dockerfile
-    restart: unless-stopped
+    restart: unless-stopped    
+    volumes:
+      - ./migrations/versions:/src/migrations/versions
+      - ./logs/bot:/var/log/bot
     env_file:
       - .env
+    networks:
+      - custom
+    depends_on:
+      redis:
+        condition: service_healthy
+      database:
+        condition: service_healthy
+
+  redis:
+    container_name: VoenmehFrilance.redis
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "redis-cli", "--raw", "incr", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      - custom
+
+  database:
+    container_name: VoenmehFrilance.database
+    image: postgres:15.4-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: rrijpbiqrwjbpbjrbrjqprbquj
+      POSTGRES_DB: VoenmehFrilance
+    volumes:
+      - "./postgres-data:/var/lib/postgresql/data"
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U admin -d VoenmehFrilance" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
     networks:
       - custom
 
