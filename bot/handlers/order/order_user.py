@@ -11,9 +11,12 @@ import uuid
 from html import escape
 from bot.keyboards.add_file import get_order_files_keyboard, get_order_done_keyboard
 from bot.keyboards.order_preview import get_order_preview_keyboard, get_cancel_current_action, get_executor_keyboard
-from bot.settings import ORDER_CHAT_ID
+from bot.settings import get_settings
 import logging
 import asyncio
+
+settings = get_settings()
+ORDER_CHAT_ID = settings.bot_settings.order_chat_id
 
 order_user_router = Router(name = 'order_user_router')
 

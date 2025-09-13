@@ -6,8 +6,11 @@ from typing import Dict, Any
 from bot.utils.consts import get_executor_text, ORDER_ACCEPTED, ORDER_REJECTED, ORDER_COMPLETED
 from bot.keyboards.go_to_menu import get_back_to_menu_keyboard
 from bot.utils.states import order_data
-from bot.settings import ORDER_CHAT_ID
+from bot.settings import get_settings
 from bot.keyboards.order_preview import get_executor_keyboard, get_complete_order_keyboard
+
+settings = get_settings()
+ORDER_CHAT_ID = settings.bot_settings.order_chat_id
 
 order_executor_router = Router(name='order_executor_router')
 
@@ -407,6 +410,7 @@ async def reject_order(callback: CallbackQuery, bot: Bot):
                 except:
                     pass
 
+        # Очищаем данные заказа
         if order_id in order_data:
             del order_data[order_id]
 

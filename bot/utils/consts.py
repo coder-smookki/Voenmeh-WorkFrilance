@@ -1,3 +1,4 @@
+from enum import StrEnum
 from html import escape
 from bot.utils.states import submission_data
 
@@ -252,3 +253,8 @@ ORDER_COMPLETED = (
         'https://t.me/KapitalLaba_TGK'
     )
 
+class BotMenu(StrEnum):
+    START = "start"
+    
+class AuthActionText(StrEnum):
+    NOT_AUTH = "Вы не авторизованы. Напиши /start"

@@ -5,9 +5,12 @@ from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from bot.utils.consts import SUPPORT_CENTER, WRITE_QUESTION, EXPECT_RESPONSE
-from bot.settings import SUPPORT_CHAT_ID
+from bot.settings import get_settings
 from bot.keyboards.go_to_menu import get_back_to_menu_keyboard
 from bot.keyboards.support import get_support_keyboard
+
+settings = get_settings()
+SUPPORT_CHAT_ID = settings.bot_settings.support_chat_id
 
 message_mapping = {}
 

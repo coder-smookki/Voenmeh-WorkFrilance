@@ -10,10 +10,13 @@ from bot.utils.states import SubmissionStates, submission_data, RobustUploadMana
 import uuid
 from bot.keyboards.add_file import get_suggestion_files_keyboard, get_suggestion_done_keyboard
 from bot.keyboards.submission_preview import get_submission_preview_keyboard, get_moderator_keyboard, get_cancel_current_action
-from bot.settings import MODERATOR_CHAT_ID
+from bot.settings import get_settings
 import logging
 from html import escape
 import asyncio
+
+settings = get_settings()
+MODERATOR_CHAT_ID = settings.bot_settings.moder_chat_id
 
 upload_manager = RobustUploadManager()
 
