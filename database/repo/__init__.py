@@ -1,5 +1,6 @@
-from database.repo.user import UserRepo
+from database.repo.user import UserRepo, OrderRepo
 
 __all__ = [
-    "UserRepo"
-    ]
+    "UserRepo",
+    "OrderRepo"
+]

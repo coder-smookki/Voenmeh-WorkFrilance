@@ -8,3 +8,12 @@ def get_support_keyboard():
         ]
     )
     return keyboard  
+
+def get_reply_to_support_keyboard(user_id: int) -> InlineKeyboardMarkup:
+    """Клавиатура для ответа пользователю из чата поддержки."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text="💬 Ответить пользователю",
+            callback_data=f"reply_support:{user_id}"
+        )]
+    ])

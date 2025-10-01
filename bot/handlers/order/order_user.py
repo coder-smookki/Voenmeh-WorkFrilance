@@ -13,7 +13,13 @@ from bot.keyboards.add_file import get_order_files_keyboard, get_order_done_keyb
 from bot.keyboards.order_preview import get_order_preview_keyboard, get_cancel_current_action, get_executor_keyboard
 from bot.settings import get_settings
 import logging
+from bot.services.order_topic_service import OrderTopicService
+from database.repo.requests import RequestsRepo
 import asyncio
+import logging
+from database.repo.user import OrderRepo 
+
+logger = logging.getLogger(__name__)
 
 settings = get_settings()
 ORDER_CHAT_ID = settings.bot_settings.order_chat_id
@@ -82,33 +88,19 @@ async def text_message_analysis_order(message: Message, state: FSMContext):
     await state.set_state(OrderStates.waiting_files)
 
 @order_user_router.callback_query(OrderStates.waiting_confirmation, F.data == "confirm_order")
-async def confirm_order(callback: CallbackQuery, state: FSMContext, bot: Bot):
+async def confirm_order(callback: CallbackQuery, state: FSMContext, bot: Bot, repo: RequestsRepo):
     try:
         data = await state.get_data()
         order_id = data['order_id']
-        file_counter = data.get('file_counter', 0)
         order_info = order_data.get(order_id)
 
         if not order_info:
             await callback.answer("Данные отправки не найдены!")
             return
 
-        success = await order_upload_manager.wait_for_order(file_counter + 1, timeout=5.0)
+        # УБИРАЕМ СОЗДАНИЕ ЗАКАЗА В БД - он создастся только при подтверждении исполнителем
+        # ЗАКАЗ ТОЛЬКО ОТПРАВЛЯЕТСЯ В ЧАТ ДЛЯ ИСПОЛНИТЕЛЕЙ
         
-        if not success:
-            logging.warning(f"Timeout waiting for file processing for order {order_id}")
-
-        async with order_upload_manager.lock:
-            order_upload_manager.pending_uploads.clear()
-            order_upload_manager.next_expected = 1
-            remaining_files = await order_upload_manager._check_sequential_uploads()
-            for msg_data in remaining_files:
-                await callback.message.answer(
-                    text=msg_data['text'],
-                    parse_mode='HTML'
-                )
-            await asyncio.sleep(0.1)  
-
         moderator_text = get_executor_text(order_info)
         files = order_info.get('files', [])
         sorted_files = sorted(files, key=lambda x: x.get('order', 0))
@@ -117,78 +109,8 @@ async def confirm_order(callback: CallbackQuery, state: FSMContext, bot: Bot):
             chat_id=ORDER_CHAT_ID,
             text=moderator_text,
             parse_mode='HTML',
-            reply_markup=get_executor_keyboard(order_id)
+            reply_markup=get_executor_keyboard(order_id)  # Кнопки "Принять/Отклонить"
         )
-        message_to_reply_to = description_message.message_id
-
-        media_group_files = []
-        single_files = []
-
-        for file_info in sorted_files:
-            if file_info['type'] in ['photo', 'video']:
-                media_group_files.append(file_info)
-            else:
-                single_files.append(file_info)
-
-        if media_group_files:
-            try:
-                media_group = []
-                for i, file_info in enumerate(media_group_files, 1):
-                    if file_info['type'] == 'photo':
-                        media_group.append(InputMediaPhoto(
-                            media=file_info['id'],
-                            caption=f"🖼️ Изображение {i} к заказу"
-                        ))
-                    elif file_info['type'] == 'video':
-                        media_group.append(InputMediaVideo(
-                            media=file_info['id'],
-                            caption=f"🎥 Видео {i} к заказу"
-                        ))
-                
-                await bot.send_media_group(
-                    chat_id=ORDER_CHAT_ID,
-                    media=media_group,
-                    reply_to_message_id=message_to_reply_to
-                )
-            except Exception as e:
-                logging.error(f"Error sending media group: {e}")
-                for i, file_info in enumerate(media_group_files, 1):
-                    try:
-                        if file_info['type'] == 'photo':
-                            await bot.send_photo(
-                                chat_id=ORDER_CHAT_ID,
-                                photo=file_info['id'],
-                                caption=f"🖼️ Изображение {i} к заказу",
-                                reply_to_message_id=message_to_reply_to
-                            )
-                        elif file_info['type'] == 'video':
-                            await bot.send_video(
-                                chat_id=ORDER_CHAT_ID,
-                                video=file_info['id'],
-                                caption=f"🎥 Видео {i} к заказу",
-                                reply_to_message_id=message_to_reply_to
-                            )
-                    except Exception as e:
-                        logging.error(f"Error sending media file: {e}")
-
-        for i, file_info in enumerate(single_files, 1):
-            try:
-                if file_info['type'] == 'document':
-                    await bot.send_document(
-                        chat_id=ORDER_CHAT_ID,
-                        document=file_info['id'],
-                        caption=f"📄 Документ {i} к заказу",
-                        reply_to_message_id=message_to_reply_to
-                    )
-                elif file_info['type'] == 'audio':
-                    await bot.send_audio(
-                        chat_id=ORDER_CHAT_ID,
-                        audio=file_info['id'],
-                        caption=f"🎵 Аудио {i} к заказу",
-                        reply_to_message_id=message_to_reply_to
-                    )
-            except Exception as e:
-                logging.error(f"Error sending single file: {e}")
 
         await callback.message.edit_text(
             text=SUBMITTED_TO_EXECUTOR,
@@ -198,7 +120,6 @@ async def confirm_order(callback: CallbackQuery, state: FSMContext, bot: Bot):
 
     except Exception as e:
         logging.error(f"Error confirming order: {e}")
-
         await callback.message.edit_text(
             text=ERROR_TRY_AGAIN,
             parse_mode='HTML',

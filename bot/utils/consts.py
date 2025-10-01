@@ -2,6 +2,8 @@ from enum import StrEnum
 from html import escape
 from bot.utils.states import submission_data
 
+MAX_FILE_SIZE = 30 * 1024 * 1024 
+
 WELCOME_TEXT = (
     '<b>Приветствую, боец!</b>\n'
     'Ты в тылу врага (сессии), но я - твой бот-подкрепление!\n\n'
@@ -18,14 +20,14 @@ DESIGN_EXAMPLE = (
     '☮️ <b>Готов принять твой вклад в общее дело!</b>\n\n'
     'Сначала пришли описание работы в формате:\n\n'
     '<code>Предмет\n'
-    'Уровень высшего образования, где( Бакалавриат -- 1, Специалитет -- 2, Магистратура -- 3, СПО -- 4)\n'
+    'Уровень высшего образования, где( Бакалавриат - 1, Специалитет - 2, Магистратура - 3, СПО  - 4)\n'
     'Курс\n'
     'Название работы + Вариант + Преподователь</code>\n\n'
     'Пример:\n'
     '<code>Высшая математика\n'
     '1(Обязательно просто цифра!)\n'
     '2(Обязательно просто цифра!)\n' 
-    'Иванов Иван Иваныч, Ряды 2 вариант</code>\n\n'
+    'Иванов Иван Иваныч, ИДЗ Ряды 2 вариант</code>\n\n'
     'После описания сможешь прикрепить файлы работы.'
     ) 
 
@@ -183,9 +185,9 @@ def get_executor_text(order_info):
 def get_edit_order_text(old_text : str):
     edit_text = (
         '✏️ <b>Редактирование описания</b>\n\n'
-        f"екущий текст:\n<code>{escape(old_text)}</code>\n\n"
+        f"Текущий текст:\n<code>{escape(old_text)}</code>\n\n"
         'Пришли новый текст:'
-        )
+    )
     return edit_text
     
 SUBMITTED_TO_EXECUTOR = (
@@ -243,14 +245,80 @@ def get_accept_order(order_info, callback):
         f"<b>Описание заказа:</b>\n{order_info['text']}\n\n"
         f"<i>Работа принята исполнителем @{callback.from_user.username}</i>"
     )
-    return accept_work
+    return accept_work 
 
 ORDER_COMPLETED = (
         '✅ <b>Ваш заказ завершен!</b>\n'
         'Спасибо за использование нашего сервиса! Исполнитель завершил работу над вашим заказом.\n'
         'Если у вас есть вопросы или нужна дополнительная помощь, не стесняйтесь обращаться!\n' 
-        '⬇️ Вы можете оставить отзы в нашем тгк:\n'
+        '⬇️ Вы можете оставить отзыв в нашем тгк:\n'
         'https://t.me/KapitalLaba_TGK'
+    )
+
+NO_ORDERS = ( 
+    "📝 <b>У вас нет активных заказов</b>\n\n"
+    "Создайте новый заказ через меню!"
+    )
+
+MESSAGE_FROM_EXECUTOR = (
+    "💬 <b>Напишите ответ для исполнителя:</b>\n\n"
+    "Ваше сообщение будет отправлено в тему заказа"
+)
+
+def get_order_text(order, status_text):
+    text =  (
+        f"📋 <b>Заказ #{order.id[:8]}</b>\n\n"
+        f"📝 <b>Описание:</b>\n{order.description}\n\n"
+        f"📊 <b>Статус:</b> {status_text}\n"
+        f"📅 <b>Создан:</b> {order.created_at.strftime('%d.%m.%Y %H:%M')}\n"    
+    )
+    return text
+
+def get_update_order_message(status_text, order_description, user_info, order_id):
+    text = (
+        f"{status_text}\n\n"
+        f"Описание заказа:\n{order_description}\n\n"
+        f"{user_info}\n"
+        f"ID заказа: #{order_id[:8]}"
+    )
+    return text 
+
+def get_accepted_order_text(callback, order_description, user_info, order_id):
+    text = (
+        f"✅ ЗАКАЗ ПРИНЯТ\n"
+        f"Исполнитель: @{callback.from_user.username}\n\n"
+        f"📋 Описание заказа:\n{order_description}\n\n"
+        f"👤 {user_info}\n"
+        f"🆔 ID заказа: #{order_id[:8]}"
+    )
+    return text 
+
+def get_attachment_text(message):
+    text = (
+        f"💬 <b>Сообщение от заказчика:</b>\n\n"
+        f"{message.text if message.text else 'Вложение без текста'}"
+    )
+    return text
+
+SUPPORT_ANSWER_PROMPT = "\nОветьте на это сообщение, чтобы отправить ответ пользователю"
+
+MESSAGE_SENT_ERROR = "❌ Ошибка при отправке сообщения. Попробуйте позже."
+
+USER_ID_NOT_FOUND = "❌ Не удалось найти ID пользователя в сообщении."
+
+ANSWER_SENT_SUCCESS = "✅ Ответ отправлен пользователю!"
+
+ANSWER_SENT_ERROR = "❌ Ошибка при отправке ответа пользователю."
+
+def get_support_message_text(user) -> str:
+    username = f"@{user.username}" if user.username else "N/A"
+    full_name = user.full_name or "N/A"
+    
+    return (
+        f"👤 <b>Сообщение от пользователя:</b>\n"
+        f"🆔 ID: <code>{user.id}</code>\n"
+        f"👤 Username: {username}\n"
+        f"📝 Имя: {full_name}"
     )
 
 class BotMenu(StrEnum):
@@ -258,3 +326,4 @@ class BotMenu(StrEnum):
     
 class AuthActionText(StrEnum):
     NOT_AUTH = "Вы не авторизованы. Напиши /start"
+    

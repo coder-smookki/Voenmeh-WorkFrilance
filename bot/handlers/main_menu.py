@@ -7,7 +7,7 @@ from bot.utils.consts import WELCOME_TEXT
 router = Router(name='start/menu')
 
 @router.message(CommandStart())
-async def start_command(message: Message):
+async def start_command(message: Message, user):
     
     await message.answer(
         text = WELCOME_TEXT,

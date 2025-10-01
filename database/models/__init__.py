@@ -1,8 +1,8 @@
 from database.models.user import User
-from database.models.bachelor import Bachelor
+from database.models.student_work import StudentWork
 
 
 __all__ = [
     "User",
-    "Bachelor"
+    "StudentWork"
 ]

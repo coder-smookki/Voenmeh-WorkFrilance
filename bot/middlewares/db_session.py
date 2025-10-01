@@ -5,6 +5,9 @@ from aiogram import BaseMiddleware
 from aiogram.types import TelegramObject
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+# Добавляем импорт репозиториев
+from database.repo.user import UserRepo, OrderRepo
+
 
 class DBSessionMiddleware(BaseMiddleware):
     """Мидлварь для добавления сессии в контекст обработчиков телеграма."""
@@ -23,6 +26,11 @@ class DBSessionMiddleware(BaseMiddleware):
     ) -> Any:
         async with self.session_maker() as session:
             data["session"] = session
+            
+            # СОЗДАЕМ РЕПОЗИТОРИИ И ПЕРЕДАЕМ В DATA
+            data["user_repo"] = UserRepo(session)
+            data["order_repo"] = OrderRepo(session)
+            
             try:
                 result = await handler(event, data)
             except Exception as ex:

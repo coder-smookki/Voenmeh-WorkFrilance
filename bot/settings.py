@@ -1,7 +1,14 @@
 import os
+from pydantic import BaseModel, PostgresDsn  # Или используйте str если предпочитаете
 
-from pydantic import BaseModel
-
+class DatabaseSettings(BaseModel):
+    database_url: str  # или PostgresDsn для проверки формата
+    # либо отдельные параметры:
+    # host: str
+    # port: int
+    # name: str
+    # user: str
+    # password: str
 
 class BotSettings(BaseModel):
     token: str
@@ -15,7 +22,7 @@ class RedisSettings(BaseModel):
 class Settings(BaseModel):
     bot_settings: BotSettings
     redis_settings: RedisSettings
-
+    database_settings: DatabaseSettings  # Добавьте эту строку
 
 def get_settings() -> Settings:
     return Settings(
@@ -28,4 +35,7 @@ def get_settings() -> Settings:
         redis_settings=RedisSettings(
             redis_url=os.environ["REDIS_URL"],
         ),
+        database_settings=DatabaseSettings(
+            database_url=os.environ["DATABASE_URL"]  # Добавьте эту строку
+        )
     )

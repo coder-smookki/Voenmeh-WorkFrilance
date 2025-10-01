@@ -7,7 +7,7 @@ def get_start_keyboard():
             [InlineKeyboardButton(text='🛡 База решений', callback_data='solutions')],
             [InlineKeyboardButton(text='☮️ Отправить работу', callback_data='suggestion')],
             [InlineKeyboardButton(text='⚡️ Поддержка', callback_data='support')],
-            [InlineKeyboardButton(text='📋 Мои заказы', callback_data='my_orders')]
+            [InlineKeyboardButton(text='📋 Мои заказы', callback_data='order_list')]
         ]
     )
     return start_keyboard

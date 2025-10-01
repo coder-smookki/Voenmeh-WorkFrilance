@@ -21,6 +21,7 @@ class OrderStates(StatesGroup):
     waiting_text = State()
     waiting_files = State()
     waiting_confirmation = State()
+    waiting_message_to_executor = State()
 
 class RobustUploadManager:
     def __init__(self):

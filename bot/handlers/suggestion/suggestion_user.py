@@ -15,6 +15,11 @@ import logging
 from html import escape
 import asyncio
 
+# Добавить в импорты
+import os
+
+UPLOADS_PATH = os.getenv('UPLOADS_PATH', 'uploads')
+
 settings = get_settings()
 MODERATOR_CHAT_ID = settings.bot_settings.moder_chat_id
 
@@ -118,6 +123,7 @@ async def confirm_submission(callback: CallbackQuery, state: FSMContext, bot: Bo
             await callback.answer("Данные отправки не найдены!")
             return
 
+        # Ждем завершения загрузки файлов (существующий код)
         success = await upload_manager.wait_for_order(file_counter + 1, timeout=5.0)
         
         if not success:
@@ -132,8 +138,9 @@ async def confirm_submission(callback: CallbackQuery, state: FSMContext, bot: Bo
                     text=msg_data['text'],
                     parse_mode='HTML'
                 )
-            await asyncio.sleep(0.1)  
+            await asyncio.sleep(0.1)
 
+        # ===== СУЩЕСТВУЮЩИЙ КОД ОТПРАВКИ МОДЕРАТОРУ =====
         moderator_text = get_new_suggeston_text(submission_info)
         files = submission_info.get('files', [])
         sorted_files = sorted(files, key=lambda x: x.get('order', 0))
@@ -215,11 +222,15 @@ async def confirm_submission(callback: CallbackQuery, state: FSMContext, bot: Bo
             except Exception as e:
                 logging.error(f"Error sending single file: {e}")
 
+        # ===== ЗАВЕРШЕНИЕ =====
         await callback.message.edit_text(
             text=SUBMITTED_TO_MODERATION,
             parse_mode='HTML',
             reply_markup=get_back_to_menu_keyboard()
         )
+
+        # Очищаем состояние, но данные остаются в submission_data для модератора
+        await state.clear()
 
     except Exception as e:
         logging.error(f"Error confirming submission: {e}")
